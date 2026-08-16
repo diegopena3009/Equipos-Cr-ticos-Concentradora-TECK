@@ -1,0 +1,17 @@
+{
+  "name": "Monitoreo de Equipos Críticos — Teck Quebrada Blanca",
+  "short_name": "Equipos Críticos",
+  "description": "Registro de inspecciones de equipos críticos del área de lubricación.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#134e6f",
+  "theme_color": "#134e6f",
+  "lang": "es-CL",
+  "icons": [
+    { "src": "icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

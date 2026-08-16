@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Monitoreo de Equipos Críticos Teck Quebrada Blanca</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#134e6f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Equipos Críticos">
+<link rel="apple-touch-icon" href="icono-180.png">
+<link rel="icon" href="icono-192.png">
 <style>
   :root{
     --bg:#f1f5f9; --panel:#ffffff; --panel2:#f8fafc; --border:#dbe2ea;
@@ -920,6 +928,13 @@ function semanaISO(fechaStr){
 }
 
 function recordId(date,turno,itemId){ return date + "|" + turno + "|" + itemId; }
+
+/* Instala el modo sin conexión: la app abre igual en zonas sin cobertura. */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  });
+}
 
 /* ---------------------------------------------------------------
    2b. SINCRONIZACIÓN EN LÍNEA
