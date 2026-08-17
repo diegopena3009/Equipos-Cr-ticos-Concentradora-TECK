@@ -523,7 +523,7 @@
       </div>
       <div class="toolbar-spacer"></div>
       <button class="btn primary" id="btnVisualReport">📄 Ver Reporte Visual</button>
-      <button class="btn" id="btnExcel">📊 Descargar Excel</button>
+      <button class="btn" id="btnExcel">📊 Generar reporte Excel</button>
       <button class="btn ghost" id="btnPlanilla">🗂️ Abrir planilla</button>
     </div>
     <div class="hist-table-wrap">
@@ -2371,9 +2371,12 @@ document.getElementById("btnExcel").addEventListener("click", async ()=>{
     });
     if(r && r.url){
       window.open(r.url, "_blank");
-      toast("Excel generado — también queda guardado en tu Drive");
+      alert("Reporte listo con " + (r.lecturas || 0) + " lecturas.\n\n" +
+            "Se abrió en Google Sheets. Para tenerlo en Excel:\n" +
+            "Archivo → Descargar → Microsoft Excel (.xlsx)\n\n" +
+            "Queda guardado en tu Drive, en la carpeta \u00abReportes Excel\u00bb.");
     }else{
-      alert("El servidor no devolvió el archivo. Intenta de nuevo.");
+      alert("El servidor no devolvió el reporte. Intenta de nuevo.");
     }
   }catch(e){ alert("No se pudo generar el Excel: " + (e && e.message ? e.message : e)); }
   btn.disabled = false; btn.textContent = antes;
