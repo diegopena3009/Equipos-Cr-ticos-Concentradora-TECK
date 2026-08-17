@@ -212,6 +212,17 @@
   .alerta-item{display:flex; gap:10px; align-items:flex-start; padding:11px 0; border-bottom:1px solid var(--border);}
   .alerta-item:last-child{border-bottom:none;}
   .alerta-val{font-weight:800; color:var(--bad); white-space:nowrap;}
+  .turno-ant{
+    background:var(--panel); border:1px solid var(--border); border-left:5px solid var(--primary2);
+    border-radius:10px; padding:13px 16px; margin-bottom:18px; font-size:13.5px;
+  }
+  .turno-ant .cab{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;}
+  .turno-ant .cab b{font-size:14px;}
+  .turno-ant .linea{color:var(--text2); padding:4px 0; border-top:1px solid var(--border);}
+  .turno-ant .linea b{color:var(--text);}
+  .turno-ant .cerrar{margin-left:auto; background:none; border:none; color:var(--text2); cursor:pointer; font-size:18px; line-height:1;}
+  tr.recien{background:var(--ok-bg) !important;}
+  .cat.foco{outline:2px solid var(--accent); outline-offset:2px;}
   .subgroup-row td{
     background:var(--panel2); font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
     color:var(--text2); padding:6px 16px; border-bottom:1px solid var(--border);
@@ -471,9 +482,11 @@
         <input type="text" id="searchBox" placeholder="Ej: Bomba 41, Espesador 281...">
       </div>
       <div class="toolbar-spacer"></div>
+      <button class="btn primary" id="btnSeguir">▶ Seguir donde quedé</button>
       <button class="btn" id="btnExpandAll">Expandir todo</button>
       <button class="btn" id="btnCollapseAll">Colapsar todo</button>
     </div>
+    <div id="panelTurnoAnterior"></div>
     <div id="registroRoot"></div>
   </section>
 
@@ -510,6 +523,8 @@
       </div>
       <div class="toolbar-spacer"></div>
       <button class="btn primary" id="btnVisualReport">📄 Ver Reporte Visual</button>
+      <button class="btn" id="btnExcel">📊 Descargar Excel</button>
+      <button class="btn ghost" id="btnPlanilla">🗂️ Abrir planilla</button>
     </div>
     <div class="hist-table-wrap">
       <table class="hist">
@@ -1716,6 +1731,20 @@ function updateCatChip(catEl, cat){
   chip.classList.toggle("done", filled===cat.items.length);
 }
 
+document.getElementById("btnSeguir").addEventListener("click", ()=>{
+  if(!avisarFaltantes()) return;
+  const ctx = getCtx();
+  const pendiente = primerPendiente(ctx);
+  if(!pendiente){
+    alert("¡Listo! Todos los puntos del recorrido de hoy ya tienen lectura.");
+    return;
+  }
+  const ult = ultimoPunto();
+  const desdeUlt = ult ? ITEMS.find(x=> x.itemId === ult) : null;
+  if(desdeUlt) toast("Último registrado: " + desdeUlt.label);
+  irAPunto(pendiente);
+});
+
 document.getElementById("btnExpandAll").addEventListener("click", ()=>{
   document.querySelectorAll("#registroRoot .cat").forEach(c=>c.classList.add("open"));
 });
@@ -1826,6 +1855,117 @@ function mostrarTexto(t){
   toast("Copia el texto con Ctrl+C y toca fuera para cerrar");
   const cerrar = function(){ area.remove(); document.removeEventListener("click", cerrar); };
   setTimeout(function(){ document.addEventListener("click", cerrar); }, 400);
+}
+
+/* ---------------------------------------------------------------
+   SEGUIR DONDE QUEDÉ
+   Guarda el último punto registrado en este equipo y permite volver
+   directo al primer punto pendiente del recorrido.
+--------------------------------------------------------------- */
+function recordarUltimoPunto(itemId){
+  try{ localStorage.setItem("eqc_ultimo_punto", itemId); }catch(e){}
+}
+function ultimoPunto(){
+  try{ return localStorage.getItem("eqc_ultimo_punto") || ""; }catch(e){ return ""; }
+}
+
+/* El primer punto del recorrido que todavía no tiene lectura. */
+function primerPendiente(ctx){
+  for(const it of ITEMS){
+    const r = RECORDS[recordId(ctx.date, ctx.turno, it.itemId)];
+    const tiene = r && r.value !== "" && r.value !== null && r.value !== undefined;
+    if(!tiene) return it;
+  }
+  return null;
+}
+
+function irAPunto(it){
+  document.getElementById("searchBox").value = "";
+  renderRegistro();
+  setTimeout(()=>{
+    const fila = document.querySelector('[data-item="' + it.itemId + '"]');
+    if(!fila){ toast("No se encontró el punto"); return; }
+    const cat = fila.closest(".cat");
+    if(cat){
+      cat.classList.add("open", "foco");
+      setTimeout(()=> cat.classList.remove("foco"), 2500);
+    }
+    fila.classList.add("recien");
+    setTimeout(()=> fila.classList.remove("recien"), 2500);
+    fila.scrollIntoView({behavior:"smooth", block:"center"});
+    const input = fila.querySelector(".val-wrap input");
+    if(input && !input.disabled) setTimeout(()=> input.focus(), 400);
+  }, 60);
+}
+
+/* ---------------------------------------------------------------
+   TURNO ANTERIOR
+   Muestra qué dejó el último turno con registros antes de hoy:
+   avance, alertas y observaciones.
+--------------------------------------------------------------- */
+function datosTurnoAnterior(ctx){
+  const hoy = normalizarFecha(ctx.date);
+  const fechas = [...new Set(Object.values(RECORDS)
+    .filter(r=> r.value !== "" && r.value !== null && r.value !== undefined)
+    .map(r=> normalizarFecha(r.date))
+    .filter(f=> f && f < hoy))].sort();
+  if(!fechas.length) return null;
+
+  const fecha = fechas[fechas.length - 1];
+  const lecturas = Object.values(RECORDS).filter(r=>
+    normalizarFecha(r.date) === fecha && r.value !== "" && r.value !== null && r.value !== undefined);
+
+  const alertas = [], detenidos = [], notas = [];
+  lecturas.forEach(r=>{
+    const set = SETTINGS[r.itemId] || {};
+    const st = statusFor(r.value, set.min, set.max);
+    if(st === "bad") alertas.push(r);
+    if(st === "off") detenidos.push(r);
+    if(r.nota) notas.push(r);
+  });
+  const tecnicos = [...new Set(lecturas.map(r=> (r.by||"").trim()).filter(Boolean))];
+  return {fecha, total: lecturas.length, alertas, detenidos, notas, tecnicos};
+}
+
+function pintarTurnoAnterior(ctx){
+  const cont = document.getElementById("panelTurnoAnterior");
+  if(!cont) return;
+  let oculto = false;
+  try{ oculto = localStorage.getItem("eqc_ocultar_ant") === normalizarFecha(ctx.date); }catch(e){}
+  if(oculto){ cont.innerHTML = ""; return; }
+
+  const d = datosTurnoAnterior(ctx);
+  if(!d){ cont.innerHTML = ""; return; }
+
+  let html = '<div class="turno-ant"><div class="cab">' +
+    '<b>📋 Turno anterior — ' + ddmmyyyy(d.fecha) + '</b>' +
+    '<span style="color:var(--text2);">' + d.total + ' lecturas' +
+    (d.tecnicos.length ? ' · ' + d.tecnicos.join(" · ") : '') + '</span>' +
+    '<button class="cerrar" title="Ocultar por hoy">&times;</button></div>';
+
+  if(d.alertas.length === 0 && d.detenidos.length === 0 && d.notas.length === 0){
+    html += '<div class="linea">Sin alertas ni observaciones.</div>';
+  }
+  d.alertas.forEach(r=>{
+    const set = SETTINGS[r.itemId] || {};
+    html += '<div class="linea">⚠️ <b>' + r.label + '</b> (' + r.catName + '): ' +
+      r.value + ' ' + r.unit + ' — fuera de rango ' + (set.min ?? "—") + ' a ' + (set.max ?? "—") +
+      (r.nota ? ' · ' + r.nota : '') + '</div>';
+  });
+  if(d.detenidos.length){
+    html += '<div class="linea">⏻ <b>Detenidos:</b> ' + d.detenidos.map(r=> r.label).join(" · ") + '</div>';
+  }
+  d.notas.filter(r=> statusFor(r.value, (SETTINGS[r.itemId]||{}).min, (SETTINGS[r.itemId]||{}).max) !== "bad")
+    .forEach(r=>{
+      html += '<div class="linea">📝 <b>' + r.label + ':</b> ' + r.nota + '</div>';
+    });
+  html += '</div>';
+  cont.innerHTML = html;
+
+  cont.querySelector(".cerrar").addEventListener("click", ()=>{
+    try{ localStorage.setItem("eqc_ocultar_ant", normalizarFecha(ctx.date)); }catch(e){}
+    cont.innerHTML = "";
+  });
 }
 
 function renderDashboard(){
@@ -2210,6 +2350,43 @@ function semanaSeleccionada(){
   }
   return v;
 }
+
+/* Excel armado por el servidor: hojas separadas, alertas pintadas y fechas
+   como fechas. Se genera con lo que esté filtrado en el Historial. */
+document.getElementById("btnExcel").addEventListener("click", async ()=>{
+  if(!SHARED){ alert("Para generar el Excel hace falta conexión con el servidor."); return; }
+  const semana = semanaSeleccionada();
+  if(!semana) return;
+  const btn = document.getElementById("btnExcel");
+  const antes = btn.textContent;
+  btn.disabled = true; btn.textContent = "Preparando…";
+  try{
+    const r = await api("excel", {
+      semana,
+      desde: document.getElementById("fDesde").value,
+      hasta: document.getElementById("fHasta").value,
+      grupo: document.getElementById("fGrupo").value,
+      turno: document.getElementById("fTurno").value,
+      tecnico: operadorActual()
+    });
+    if(r && r.url){
+      window.open(r.url, "_blank");
+      toast("Excel generado — también queda guardado en tu Drive");
+    }else{
+      alert("El servidor no devolvió el archivo. Intenta de nuevo.");
+    }
+  }catch(e){ alert("No se pudo generar el Excel: " + (e && e.message ? e.message : e)); }
+  btn.disabled = false; btn.textContent = antes;
+});
+
+document.getElementById("btnPlanilla").addEventListener("click", async ()=>{
+  if(!SHARED){ alert("Para abrir la planilla hace falta conexión con el servidor."); return; }
+  try{
+    const r = await api("planilla", {});
+    if(r && r.url) window.open(r.url, "_blank");
+    else alert("No pudimos obtener el enlace de la planilla.");
+  }catch(e){ alert("No se pudo abrir la planilla: " + (e && e.message ? e.message : e)); }
+});
 
 document.getElementById("btnVisualReport").addEventListener("click", async ()=>{
   if(!semanaSeleccionada()) return;
