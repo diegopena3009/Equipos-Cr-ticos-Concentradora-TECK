@@ -523,8 +523,6 @@
       </div>
       <div class="toolbar-spacer"></div>
       <button class="btn primary" id="btnVisualReport">📄 Ver Reporte Visual</button>
-      <button class="btn" id="btnExcel">📊 Generar reporte Excel</button>
-      <button class="btn ghost" id="btnPlanilla">🗂️ Abrir planilla</button>
     </div>
     <div class="hist-table-wrap">
       <table class="hist">
@@ -1803,169 +1801,8 @@ function pintarAlertas(fueraDeRango, detenidos, porArea, ctx){
       detenidos.map(function(d){ return d.it.label; }).join(" \u00b7 ") + '</div></div>';
   }
 
-  html += '</div><div style="margin-bottom:22px;">' +
-    '<button class="btn primary" id="btnCopiarAlertas">\ud83d\udccb Copiar resumen para el supervisor</button></div>';
-
-  cont.innerHTML = html;
-  const btn = document.getElementById("btnCopiarAlertas");
-  if(btn) btn.addEventListener("click", function(){ copiarResumen(fueraDeRango, detenidos, ctx); });
-}
-
-/* Texto listo para pegar en WhatsApp o en el correo del supervisor. */
-function copiarResumen(fueraDeRango, detenidos, ctx){
-  const op = operadorActual();
-  let t = "MONITOREO EQUIPOS CR\u00cdTICOS \u2014 TURNO NOCHE\n";
-  t += ddmmyyyy(ctx.date) + " \u00b7 Turno " + ctx.turno + " \u00b7 Semana " + (ctx.semana || semanaISO(ctx.date)) + "\n";
-  if(op) t += "T\u00e9cnico: " + op + "\n";
-  t += "\n";
-
-  if(fueraDeRango.length === 0){
-    t += "Sin lecturas fuera de rango.\n";
-  }else{
-    t += "FUERA DE RANGO (" + fueraDeRango.length + "):\n";
-    fueraDeRango.forEach(function(a){
-      const it = a.it, rec = a.rec, set = a.set, ant = a.ant;
-      t += "- " + it.label + " (" + it.catName + ", " + it.group + "): " + rec.value + " " + it.unit +
-           " [rango " + (set.min == null || set.min === "" ? "-" : set.min) + " a " + (set.max == null || set.max === "" ? "-" : set.max) + "]";
-      if(ant) t += " | anterior " + ant.value;
-      if(rec.nota) t += " | " + rec.nota;
-      t += "\n";
-    });
-  }
-  if(detenidos.length){
-    t += "\nDETENIDOS (" + detenidos.length + "):\n";
-    detenidos.forEach(function(d){ t += "- " + d.it.label + " (" + d.it.catName + ")\n"; });
-  }
-
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(t)
-      .then(function(){ toast("Resumen copiado \u2014 p\u00e9galo en WhatsApp o en el correo"); })
-      .catch(function(){ mostrarTexto(t); });
-  }else{
-    mostrarTexto(t);
-  }
-}
-
-function mostrarTexto(t){
-  const area = document.createElement("textarea");
-  area.value = t;
-  area.style.cssText = "position:fixed; inset:10% 8%; z-index:200; padding:14px; font-size:13px; border-radius:12px; border:2px solid var(--primary);";
-  document.body.appendChild(area);
-  area.select();
-  toast("Copia el texto con Ctrl+C y toca fuera para cerrar");
-  const cerrar = function(){ area.remove(); document.removeEventListener("click", cerrar); };
-  setTimeout(function(){ document.addEventListener("click", cerrar); }, 400);
-}
-
-/* ---------------------------------------------------------------
-   SEGUIR DONDE QUEDÉ
-   Guarda el último punto registrado en este equipo y permite volver
-   directo al primer punto pendiente del recorrido.
---------------------------------------------------------------- */
-function recordarUltimoPunto(itemId){
-  try{ localStorage.setItem("eqc_ultimo_punto", itemId); }catch(e){}
-}
-function ultimoPunto(){
-  try{ return localStorage.getItem("eqc_ultimo_punto") || ""; }catch(e){ return ""; }
-}
-
-/* El primer punto del recorrido que todavía no tiene lectura. */
-function primerPendiente(ctx){
-  for(const it of ITEMS){
-    const r = RECORDS[recordId(ctx.date, ctx.turno, it.itemId)];
-    const tiene = r && r.value !== "" && r.value !== null && r.value !== undefined;
-    if(!tiene) return it;
-  }
-  return null;
-}
-
-function irAPunto(it){
-  document.getElementById("searchBox").value = "";
-  renderRegistro();
-  setTimeout(()=>{
-    const fila = document.querySelector('[data-item="' + it.itemId + '"]');
-    if(!fila){ toast("No se encontró el punto"); return; }
-    const cat = fila.closest(".cat");
-    if(cat){
-      cat.classList.add("open", "foco");
-      setTimeout(()=> cat.classList.remove("foco"), 2500);
-    }
-    fila.classList.add("recien");
-    setTimeout(()=> fila.classList.remove("recien"), 2500);
-    fila.scrollIntoView({behavior:"smooth", block:"center"});
-    const input = fila.querySelector(".val-wrap input");
-    if(input && !input.disabled) setTimeout(()=> input.focus(), 400);
-  }, 60);
-}
-
-/* ---------------------------------------------------------------
-   TURNO ANTERIOR
-   Muestra qué dejó el último turno con registros antes de hoy:
-   avance, alertas y observaciones.
---------------------------------------------------------------- */
-function datosTurnoAnterior(ctx){
-  const hoy = normalizarFecha(ctx.date);
-  const fechas = [...new Set(Object.values(RECORDS)
-    .filter(r=> r.value !== "" && r.value !== null && r.value !== undefined)
-    .map(r=> normalizarFecha(r.date))
-    .filter(f=> f && f < hoy))].sort();
-  if(!fechas.length) return null;
-
-  const fecha = fechas[fechas.length - 1];
-  const lecturas = Object.values(RECORDS).filter(r=>
-    normalizarFecha(r.date) === fecha && r.value !== "" && r.value !== null && r.value !== undefined);
-
-  const alertas = [], detenidos = [], notas = [];
-  lecturas.forEach(r=>{
-    const set = SETTINGS[r.itemId] || {};
-    const st = statusFor(r.value, set.min, set.max);
-    if(st === "bad") alertas.push(r);
-    if(st === "off") detenidos.push(r);
-    if(r.nota) notas.push(r);
-  });
-  const tecnicos = [...new Set(lecturas.map(r=> (r.by||"").trim()).filter(Boolean))];
-  return {fecha, total: lecturas.length, alertas, detenidos, notas, tecnicos};
-}
-
-function pintarTurnoAnterior(ctx){
-  const cont = document.getElementById("panelTurnoAnterior");
-  if(!cont) return;
-  let oculto = false;
-  try{ oculto = localStorage.getItem("eqc_ocultar_ant") === normalizarFecha(ctx.date); }catch(e){}
-  if(oculto){ cont.innerHTML = ""; return; }
-
-  const d = datosTurnoAnterior(ctx);
-  if(!d){ cont.innerHTML = ""; return; }
-
-  let html = '<div class="turno-ant"><div class="cab">' +
-    '<b>📋 Turno anterior — ' + ddmmyyyy(d.fecha) + '</b>' +
-    '<span style="color:var(--text2);">' + d.total + ' lecturas' +
-    (d.tecnicos.length ? ' · ' + d.tecnicos.join(" · ") : '') + '</span>' +
-    '<button class="cerrar" title="Ocultar por hoy">&times;</button></div>';
-
-  if(d.alertas.length === 0 && d.detenidos.length === 0 && d.notas.length === 0){
-    html += '<div class="linea">Sin alertas ni observaciones.</div>';
-  }
-  d.alertas.forEach(r=>{
-    const set = SETTINGS[r.itemId] || {};
-    html += '<div class="linea">⚠️ <b>' + r.label + '</b> (' + r.catName + '): ' +
-      r.value + ' ' + r.unit + ' — fuera de rango ' + (set.min ?? "—") + ' a ' + (set.max ?? "—") +
-      (r.nota ? ' · ' + r.nota : '') + '</div>';
-  });
-  if(d.detenidos.length){
-    html += '<div class="linea">⏻ <b>Detenidos:</b> ' + d.detenidos.map(r=> r.label).join(" · ") + '</div>';
-  }
-  d.notas.filter(r=> statusFor(r.value, (SETTINGS[r.itemId]||{}).min, (SETTINGS[r.itemId]||{}).max) !== "bad")
-    .forEach(r=>{
-      html += '<div class="linea">📝 <b>' + r.label + ':</b> ' + r.nota + '</div>';
-    });
   html += '</div>';
   cont.innerHTML = html;
-
-  cont.querySelector(".cerrar").addEventListener("click", ()=>{
-    try{ localStorage.setItem("eqc_ocultar_ant", normalizarFecha(ctx.date)); }catch(e){}
-    cont.innerHTML = "";
-  });
 }
 
 function renderDashboard(){
@@ -2350,46 +2187,6 @@ function semanaSeleccionada(){
   }
   return v;
 }
-
-/* Excel armado por el servidor: hojas separadas, alertas pintadas y fechas
-   como fechas. Se genera con lo que esté filtrado en el Historial. */
-document.getElementById("btnExcel").addEventListener("click", async ()=>{
-  if(!SHARED){ alert("Para generar el Excel hace falta conexión con el servidor."); return; }
-  const semana = semanaSeleccionada();
-  if(!semana) return;
-  const btn = document.getElementById("btnExcel");
-  const antes = btn.textContent;
-  btn.disabled = true; btn.textContent = "Preparando…";
-  try{
-    const r = await api("excel", {
-      semana,
-      desde: document.getElementById("fDesde").value,
-      hasta: document.getElementById("fHasta").value,
-      grupo: document.getElementById("fGrupo").value,
-      turno: document.getElementById("fTurno").value,
-      tecnico: operadorActual()
-    });
-    if(r && r.url){
-      window.open(r.url, "_blank");
-      alert("Reporte listo con " + (r.lecturas || 0) + " lecturas.\n\n" +
-            "Se abrió en Google Sheets. Para tenerlo en Excel:\n" +
-            "Archivo → Descargar → Microsoft Excel (.xlsx)\n\n" +
-            "Queda guardado en tu Drive, en la carpeta \u00abReportes Excel\u00bb.");
-    }else{
-      alert("El servidor no devolvió el reporte. Intenta de nuevo.");
-    }
-  }catch(e){ alert("No se pudo generar el Excel: " + (e && e.message ? e.message : e)); }
-  btn.disabled = false; btn.textContent = antes;
-});
-
-document.getElementById("btnPlanilla").addEventListener("click", async ()=>{
-  if(!SHARED){ alert("Para abrir la planilla hace falta conexión con el servidor."); return; }
-  try{
-    const r = await api("planilla", {});
-    if(r && r.url) window.open(r.url, "_blank");
-    else alert("No pudimos obtener el enlace de la planilla.");
-  }catch(e){ alert("No se pudo abrir la planilla: " + (e && e.message ? e.message : e)); }
-});
 
 document.getElementById("btnVisualReport").addEventListener("click", async ()=>{
   if(!semanaSeleccionada()) return;
