@@ -1,7 +1,7 @@
 /* Permite abrir la app sin señal.
    Sube el número de VERSION cada vez que cambies index.html, así los
    teléfonos toman la versión nueva en lugar de la guardada. */
-const VERSION = "equipos-v1";
+const VERSION = "equipos-v2";
 const ARCHIVOS = ["./", "./index.html", "./manifest.json", "./icono-192.png", "./icono-512.png"];
 
 self.addEventListener("install", e=>{

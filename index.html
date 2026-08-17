@@ -299,8 +299,8 @@
     input[type="text"], input[type="number"], input[type="date"], select{ min-height:44px; }
     .btn, nav.tabs button{ min-height:44px; padding-left:16px; padding-right:16px; }
     .val-wrap input{ flex:1; min-width:0; text-align:right; font-weight:700; }
-    .photo-cell{ gap:10px; }
-    .photo-cell .btn{ flex:1; }
+    .photo-cell{ gap:8px; flex-wrap:wrap; }
+    .photo-cell .btn{ flex:1 1 44%; }
     /* El encabezado con Fecha/Semana/Turno/Técnico queda siempre a la vista */
     .app-header{ position:sticky; top:0; z-index:30; }
     .header-controls{ gap:8px 10px; }
@@ -1500,9 +1500,11 @@ function renderRegistro(){
           <td data-label="Foto">
             <div class="photo-cell">
               ${rec.photo ? `<img class="thumb" src="${rec.photo}">` : `<span style="color:var(--text2); font-size:12px;">Sin foto</span>`}
-              <button class="btn small btnPhoto"${bloqueado ? " disabled" : ""}>📷 ${rec.photo ? 'Cambiar' : 'Subir'}</button>
+              <button class="btn small btnPhoto"${bloqueado ? " disabled" : ""}>📷 ${rec.photo ? 'Otra foto' : 'Cámara'}</button>
+              <button class="btn small ghost btnGaleria"${bloqueado ? " disabled" : ""} title="Elegir una foto guardada en el teléfono">🖼️ Galería</button>
               ${rec.photo ? `<button class="btn small ghost btnRemovePhoto">✕</button>` : ``}
               <input type="file" accept="image/*" capture="environment" class="filePhoto">
+              <input type="file" accept="image/*" class="fileGaleria">
             </div>
           </td>`;
 
@@ -1528,19 +1530,31 @@ function renderRegistro(){
         });
 
         const fileInput = tr.querySelector(".filePhoto");
+        const fileGaleria = tr.querySelector(".fileGaleria");
         tr.querySelector(".btnPhoto").addEventListener("click", ()=> fileInput.click());
-        fileInput.addEventListener("change", async ()=>{
-          if(!fileInput.files || !fileInput.files[0]) return;
-          const dataUrl = await compressImage(fileInput.files[0], 900);
-          const cur = RECORDS[id] || {id, date:ctx.date, turno:ctx.turno, jornada:ctx.jornada, semana:ctx.semana,
-            catId:cat.id, catName:cat.name, group:cat.group, itemId:it.itemId, label:it.label, unit:it.unit, value:""};
-          cur.photo = dataUrl;
-          cur.jornada = ctx.jornada;
-          cur.semana = ctx.semana;
-          await saveRecord(cur, {photo:true});
-          toast("Foto guardada: " + it.label);
-          renderRegistro();
-        });
+        tr.querySelector(".btnGaleria").addEventListener("click", ()=> fileGaleria.click());
+        // Vale igual la foto recién tomada o una elegida de la galería.
+        const guardarFotoElegida = async (input)=>{
+          if(!input.files || !input.files[0]) return;
+          if(!avisarFaltantes()){ input.value = ""; return; }
+          toast("Preparando la foto…");
+          try{
+            const dataUrl = await compressImage(input.files[0], 900);
+            const cur = RECORDS[id] || {id, date:ctx.date, turno:ctx.turno, jornada:ctx.jornada, semana:ctx.semana,
+              catId:cat.id, catName:cat.name, group:cat.group, itemId:it.itemId, label:it.label, unit:it.unit, value:""};
+            cur.photo = dataUrl;
+            cur.jornada = ctx.jornada;
+            cur.semana = ctx.semana;
+            await saveRecord(cur, {photo:true});
+            toast("Foto guardada: " + it.label);
+            renderRegistro();
+          }catch(e){
+            alert("No pudimos leer esa imagen. Prueba con otra.");
+          }
+          input.value = "";
+        };
+        fileInput.addEventListener("change", ()=> guardarFotoElegida(fileInput));
+        fileGaleria.addEventListener("change", ()=> guardarFotoElegida(fileGaleria));
 
         const rmBtn = tr.querySelector(".btnRemovePhoto");
         if(rmBtn){
