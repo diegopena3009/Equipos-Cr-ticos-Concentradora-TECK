@@ -387,7 +387,8 @@
       </div>
       <div class="field-inline">
         <label>Semana</label>
-        <input type="number" id="ctxSemana" min="1" max="53" placeholder="1-52" style="width:56px;">
+        <input type="number" id="ctxSemana" min="1" max="53" placeholder="1-52" style="width:64px;"
+               title="Escribe la semana que le corresponde a tu turno. Queda guardada para las próximas lecturas.">
       </div>
       <svg class="mascota" viewBox="0 0 250 270" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <ellipse cx="90" cy="252" rx="72" ry="10" fill="#000" opacity="0.18"/>
@@ -2061,6 +2062,30 @@ function renderHistorial(){
   document.getElementById(id).addEventListener("change", renderHistorial);
 });
 
+/* Las fechas y la semana no pueden convivir: un rango que cruza semanas
+   quedaba vacío porque la semana descartaba la otra mitad. Al usar uno,
+   se limpia el otro. */
+["fDesde","fHasta"].forEach(id=>{
+  document.getElementById(id).addEventListener("change", ()=>{
+    const sem = document.getElementById("fSemana");
+    if(document.getElementById(id).value && sem.value){
+      sem.value = "";
+      toast("Se quitó el filtro de semana para respetar tus fechas");
+      renderHistorial();
+    }
+  });
+});
+document.getElementById("fSemana").addEventListener("change", ()=>{
+  const sem = document.getElementById("fSemana").value;
+  const desde = document.getElementById("fDesde");
+  const hasta = document.getElementById("fHasta");
+  if(sem && (desde.value || hasta.value)){
+    desde.value = ""; hasta.value = "";
+    toast("Se quitaron las fechas para mostrar la semana completa");
+    renderHistorial();
+  }
+});
+
 function areaIcon(group){
   if(/Chancado/.test(group)) return "🪨";
   if(/Correas/.test(group)) return "⛓️";
@@ -2095,7 +2120,13 @@ function buildVisualReportHtml(list, periodoTexto){
     byCat.get(r.catName).push(r);
   });
 
-  const semanaTxt = periodoTexto || (semana ? "Semana " + semana : "Todo el historial");
+  let semanaTxt = periodoTexto || (semana ? "Semana " + semana : "Todo el historial");
+  // Si el rango abarca varias semanas, se indican en el encabezado.
+  if(!semana && list.length){
+    const semanas = [...new Set(list.map(r=> String(r.semana || semanaISO(r.date))).filter(Boolean))].sort((a,b)=> a-b);
+    if(semanas.length === 1) semanaTxt += " (semana " + semanas[0] + ")";
+    else if(semanas.length > 1) semanaTxt += " (semanas " + semanas.join(" y ") + ")";
+  }
   // Quién tomó las lecturas de este reporte
   const operadores = [...new Set(list.map(r=> (r.by||"").trim()).filter(Boolean))];
   const operadorTxt = operadores.length === 0 ? "Técnico Lubricador no registrado"
@@ -2596,10 +2627,32 @@ async function init(){
 
   const dateInput = document.getElementById("ctxDate");
   dateInput.value = todayStr();
+  /* La semana la escribe el turno: el ciclo de la faena (miércoles a
+     miércoles) no calza con la semana del calendario. La app solo la
+     sugiere si el campo está vacío, y nunca pisa lo que se escribió. */
   const semInput = document.getElementById("ctxSemana");
-  const ponerSemana = ()=> semInput.value = semanaISO(dateInput.value);
-  ponerSemana();
-  dateInput.addEventListener("change", ponerSemana);
+  let semanaManual = false;
+  try{
+    const guardada = localStorage.getItem("eqc_semana");
+    if(guardada){ semInput.value = guardada; semanaManual = true; }
+  }catch(e){}
+
+  if(!semInput.value) semInput.value = semanaISO(dateInput.value);
+
+  semInput.addEventListener("change", ()=>{
+    const v = semInput.value.trim();
+    semanaManual = !!v;
+    try{
+      if(v) localStorage.setItem("eqc_semana", v);
+      else localStorage.removeItem("eqc_semana");
+    }catch(e){}
+    renderRegistro(); renderDashboard();
+  });
+
+  dateInput.addEventListener("change", ()=>{
+    // Si el turno ya escribió su semana, se respeta al cambiar de día.
+    if(!semanaManual) semInput.value = semanaISO(dateInput.value);
+  });
   wireDateDisplay("ctxDate", "ctxDateDisplay");
   wireDateDisplay("fDesde", "fDesdeDisplay");
   wireDateDisplay("fHasta", "fHastaDisplay");
