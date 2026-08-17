@@ -2014,8 +2014,10 @@ function getFilteredHistorial(){
   const fotoF = document.getElementById("fFoto").value;
 
   let list = Object.values(RECORDS).filter(r => r.value !== "" && r.value !== null && r.value !== undefined || r.photo || r.hasPhoto);
-  if(desde) list = list.filter(r=> r.date >= desde);
-  if(hasta) list = list.filter(r=> r.date <= hasta);
+  // La fecha puede venir del servidor con hora incluida: se normaliza antes
+  // de comparar, si no el rango no calzaba nunca.
+  if(desde) list = list.filter(r=> normalizarFecha(r.date) >= desde);
+  if(hasta) list = list.filter(r=> normalizarFecha(r.date) <= hasta);
   if(turno) list = list.filter(r=> r.turno === turno);
   // Las lecturas antiguas no traen semana guardada: se calcula desde su fecha.
   if(semana) list = list.filter(r=> String(r.semana || semanaISO(r.date)) === String(semana));
@@ -2069,7 +2071,7 @@ function areaIcon(group){
   if(/Espesador/.test(group)) return "💧";
   return "🏭";
 }
-function buildVisualReportHtml(list){
+function buildVisualReportHtml(list, periodoTexto){
   const desde = document.getElementById("fDesde").value;
   const hasta = document.getElementById("fHasta").value;
   const turno = document.getElementById("fTurno").value;
@@ -2093,7 +2095,7 @@ function buildVisualReportHtml(list){
     byCat.get(r.catName).push(r);
   });
 
-  const semanaTxt = `Semana ${semana}`;
+  const semanaTxt = periodoTexto || (semana ? "Semana " + semana : "Todo el historial");
   // Quién tomó las lecturas de este reporte
   const operadores = [...new Set(list.map(r=> (r.by||"").trim()).filter(Boolean))];
   const operadorTxt = operadores.length === 0 ? "Técnico Lubricador no registrado"
@@ -2317,24 +2319,35 @@ function openOrDownloadReport(html, filename){
   a.remove();
   toast("Reporte descargado: " + filename + " — ábrelo con doble clic desde tu carpeta de Descargas.");
 }
-function semanaSeleccionada(){
-  const v = document.getElementById("fSemana").value.trim();
-  if(!v){
-    alert("Elige una semana primero.\n\nEscribe el número de semana en el filtro \u00abSemana\u00bb del Historial y vuelve a generar el reporte.");
-    return null;
-  }
-  return v;
+/* El reporte necesita saber de qué período es: sirve la semana o un rango
+   de fechas. Devuelve el texto que va en el encabezado, o null si falta todo. */
+function periodoSeleccionado(){
+  const sem = document.getElementById("fSemana").value.trim();
+  const desde = document.getElementById("fDesde").value;
+  const hasta = document.getElementById("fHasta").value;
+
+  if(sem) return "Semana " + sem;
+  if(desde && hasta) return ddmmyyyy(desde) + " al " + ddmmyyyy(hasta);
+  if(desde) return "desde el " + ddmmyyyy(desde);
+  if(hasta) return "hasta el " + ddmmyyyy(hasta);
+
+  alert("Elige el período del reporte.\n\nEscribe el número de semana, o un rango de fechas en \u00abDesde\u00bb y \u00abHasta\u00bb.");
+  return null;
 }
 
 document.getElementById("btnVisualReport").addEventListener("click", async ()=>{
-  if(!semanaSeleccionada()) return;
+  const periodo = periodoSeleccionado();
+  if(!periodo) return;
   const list = getFilteredHistorial();
+  if(!list.length){
+    alert("No hay lecturas en ese período.\n\nRevisa las fechas, la semana o el área que tienes filtrados.");
+    return;
+  }
   await ensurePhotos(list);
-  const html = buildVisualReportHtml(list);
+  const html = buildVisualReportHtml(list, periodo);
   openOrDownloadReport(html, "reporte_visual_" + todayStr() + ".html");
 });
 document.getElementById("btnDailyReport").addEventListener("click", async ()=>{
-  if(!semanaSeleccionada()) return;
   const today = todayStr();
   document.getElementById("fDesde").value = today;
   document.getElementById("fHasta").value = today;
@@ -2346,8 +2359,12 @@ document.getElementById("btnDailyReport").addEventListener("click", async ()=>{
   document.getElementById("fDesde").dispatchEvent(new Event("change", {bubbles:true}));
   document.getElementById("fHasta").dispatchEvent(new Event("change", {bubbles:true}));
   const list = getFilteredHistorial();
+  if(!list.length){
+    alert("Todavía no hay lecturas registradas hoy.");
+    return;
+  }
   await ensurePhotos(list);
-  const html = buildVisualReportHtml(list);
+  const html = buildVisualReportHtml(list, ddmmyyyy(today));
   openOrDownloadReport(html, "reporte_diario_" + today + ".html");
 });
 
