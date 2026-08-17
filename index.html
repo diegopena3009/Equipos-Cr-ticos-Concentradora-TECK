@@ -1664,14 +1664,30 @@ function renderRegistro(){
         fileGaleria.addEventListener("change", ()=> guardarFotoElegida(fileGaleria));
 
         // Marcar el equipo como detenido, o quitar la marca
-        tr.querySelector(".btnDetenido").addEventListener("click", async ()=>{
+        // Se actualiza solo esta fila: reconstruir la lista hacía perder
+        // la posición en el recorrido.
+        const btnDet = tr.querySelector(".btnDetenido");
+        btnDet.addEventListener("click", async ()=>{
           if(!avisarFaltantes()) return;
           const cur = RECORDS[id] || {id, date:ctx.date, turno:ctx.turno, jornada:ctx.jornada, semana:ctx.semana,
             catId:cat.id, catName:cat.name, group:cat.group, itemId:it.itemId, label:it.label, unit:it.unit, value:""};
-          cur.value = esDetenido(cur.value) ? "" : "Detenido";
+          const ahoraDetenido = !esDetenido(cur.value);
+          cur.value = ahoraDetenido ? "Detenido" : "";
           cur.jornada = ctx.jornada; cur.semana = ctx.semana;
           await saveRecord(cur);
-          renderRegistro(); renderDashboard();
+          recordarUltimoPunto(it.itemId);
+
+          btnDet.classList.toggle("activo", ahoraDetenido);
+          const entrada = tr.querySelector(".val-wrap input");
+          if(entrada) entrada.value = cur.value;
+          const pill = tr.querySelector(".state-pill");
+          pill.className = "state-pill " + (ahoraDetenido ? "detenido" : "");
+          pill.textContent = ahoraDetenido ? "⏻ Detenido" : "Pendiente";
+          const punto = tr.querySelector(".status-dot");
+          punto.className = "status-dot " + (ahoraDetenido ? "off" : "");
+          actualizarContadorCategoria(catEl, cat, ctx);
+          renderDashboard();
+          toast(ahoraDetenido ? "Detenido: " + it.label : "Marca quitada: " + it.label);
         });
 
         // Observación del punto
@@ -1715,6 +1731,7 @@ function renderRegistro(){
     root.appendChild(gBlock);
   });
 
+  pintarTurnoAnterior(ctx);
   ensurePhotosForDate(ctx.date).then(ok=>{ if(ok) renderRegistro(); });
 }
 function updateCatChip(catEl, cat){
@@ -1803,6 +1820,127 @@ function pintarAlertas(fueraDeRango, detenidos, porArea, ctx){
 
   html += '</div>';
   cont.innerHTML = html;
+}
+
+/* ---------------------------------------------------------------
+   SEGUIR DONDE QUEDÉ Y TURNO ANTERIOR
+--------------------------------------------------------------- */
+function recordarUltimoPunto(itemId){
+  try{ localStorage.setItem("eqc_ultimo_punto", itemId); }catch(e){}
+}
+function ultimoPunto(){
+  try{ return localStorage.getItem("eqc_ultimo_punto") || ""; }catch(e){ return ""; }
+}
+
+/* El primer punto del recorrido que todavía no tiene lectura. */
+function primerPendiente(ctx){
+  for(const it of ITEMS){
+    const r = RECORDS[recordId(ctx.date, ctx.turno, it.itemId)];
+    const tiene = r && r.value !== "" && r.value !== null && r.value !== undefined;
+    if(!tiene) return it;
+  }
+  return null;
+}
+
+function irAPunto(it){
+  document.getElementById("searchBox").value = "";
+  renderRegistro();
+  setTimeout(()=>{
+    const fila = document.querySelector('[data-item="' + it.itemId + '"]');
+    if(!fila){ toast("No se encontró el punto"); return; }
+    const cat = fila.closest(".cat");
+    if(cat){
+      cat.classList.add("open", "foco");
+      setTimeout(()=> cat.classList.remove("foco"), 2500);
+    }
+    fila.classList.add("recien");
+    setTimeout(()=> fila.classList.remove("recien"), 2500);
+    fila.scrollIntoView({behavior:"smooth", block:"center"});
+    const input = fila.querySelector(".val-wrap input");
+    if(input && !input.disabled) setTimeout(()=> input.focus(), 400);
+  }, 60);
+}
+
+/* Refresca el contador del encabezado de un equipo sin reconstruir la lista. */
+function actualizarContadorCategoria(catEl, cat, ctx){
+  if(!catEl) return;
+  const chip = catEl.querySelector(".cat-head .chip");
+  if(!chip) return;
+  const listos = cat.items.filter(x=>{
+    const r = RECORDS[recordId(ctx.date, ctx.turno, x.itemId)];
+    return r && r.value !== "" && r.value !== null && r.value !== undefined;
+  }).length;
+  chip.textContent = listos + "/" + cat.items.length + " registrado" + (cat.items.length > 1 ? "s" : "");
+  chip.classList.toggle("done", listos === cat.items.length);
+}
+
+/* Qué dejó el último turno con registros antes de hoy. */
+function datosTurnoAnterior(ctx){
+  const hoy = normalizarFecha(ctx.date);
+  const fechas = [...new Set(Object.values(RECORDS)
+    .filter(r=> r.value !== "" && r.value !== null && r.value !== undefined)
+    .map(r=> normalizarFecha(r.date))
+    .filter(f=> f && f < hoy))].sort();
+  if(!fechas.length) return null;
+
+  const fecha = fechas[fechas.length - 1];
+  const lecturas = Object.values(RECORDS).filter(r=>
+    normalizarFecha(r.date) === fecha && r.value !== "" && r.value !== null && r.value !== undefined);
+
+  const alertas = [], detenidos = [], notas = [];
+  lecturas.forEach(r=>{
+    const set = SETTINGS[r.itemId] || {};
+    const st = statusFor(r.value, set.min, set.max);
+    if(st === "bad") alertas.push(r);
+    if(st === "off") detenidos.push(r);
+    if(r.nota) notas.push(r);
+  });
+  const tecnicos = [...new Set(lecturas.map(r=> (r.by||"").trim()).filter(Boolean))];
+  return {fecha, total: lecturas.length, alertas, detenidos, notas, tecnicos};
+}
+
+function pintarTurnoAnterior(ctx){
+  const cont = document.getElementById("panelTurnoAnterior");
+  if(!cont) return;
+  let oculto = false;
+  try{ oculto = localStorage.getItem("eqc_ocultar_ant") === normalizarFecha(ctx.date); }catch(e){}
+  if(oculto){ cont.innerHTML = ""; return; }
+
+  const d = datosTurnoAnterior(ctx);
+  if(!d){ cont.innerHTML = ""; return; }
+
+  let html = '<div class="turno-ant"><div class="cab">' +
+    '<b>📋 Turno anterior — ' + ddmmyyyy(d.fecha) + '</b>' +
+    '<span style="color:var(--text2);">' + d.total + ' lecturas' +
+    (d.tecnicos.length ? ' · ' + d.tecnicos.join(" · ") : '') + '</span>' +
+    '<button class="cerrar" title="Ocultar por hoy">&times;</button></div>';
+
+  if(d.alertas.length === 0 && d.detenidos.length === 0 && d.notas.length === 0){
+    html += '<div class="linea">Sin alertas ni observaciones.</div>';
+  }
+  d.alertas.forEach(r=>{
+    const set = SETTINGS[r.itemId] || {};
+    html += '<div class="linea">⚠️ <b>' + r.label + '</b> (' + r.catName + '): ' +
+      r.value + ' ' + r.unit + ' — fuera de rango ' +
+      (set.min === undefined || set.min === null || set.min === "" ? "—" : set.min) + ' a ' +
+      (set.max === undefined || set.max === null || set.max === "" ? "—" : set.max) +
+      (r.nota ? ' · ' + r.nota : '') + '</div>';
+  });
+  if(d.detenidos.length){
+    html += '<div class="linea">⏻ <b>Detenidos:</b> ' + d.detenidos.map(r=> r.label).join(" · ") + '</div>';
+  }
+  d.notas.forEach(r=>{
+    const set = SETTINGS[r.itemId] || {};
+    if(statusFor(r.value, set.min, set.max) === "bad") return;
+    html += '<div class="linea">📝 <b>' + r.label + ':</b> ' + r.nota + '</div>';
+  });
+  html += '</div>';
+  cont.innerHTML = html;
+
+  cont.querySelector(".cerrar").addEventListener("click", ()=>{
+    try{ localStorage.setItem("eqc_ocultar_ant", normalizarFecha(ctx.date)); }catch(e){}
+    cont.innerHTML = "";
+  });
 }
 
 function renderDashboard(){
